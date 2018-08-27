@@ -9,6 +9,11 @@ import (
 	"net/http"
 )
 
+import (
+	_ "net/http/pprof"
+	"time"
+)
+
 var (
 	// record every ping RTT latency
 	pingRTTHistogram = prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -34,6 +39,8 @@ var (
 )
 
 func endless_pings(h string) {
+	defer fmt.Println("ended ping")
+
 	pinger, err := ping.NewPinger(h)
 	if err != nil {
 		fmt.Printf("ERROR: %s\n", err.Error())
@@ -44,14 +51,16 @@ func endless_pings(h string) {
 		// fmt.Printf("%d bytes from %s: icmp_seq=%d time=%v\n",
 		//	pkt.Nbytes, pkt.IPAddr, pkt.Seq, pkt.Rtt)
 		// Observe the rtt as seconds into the histogram
-		pingRTTHistogram.WithLabelValues(h).Observe(pkt.Rtt.Seconds())
-
+		pingRTTHistogram.WithLabelValues(pkt.IPAddr.String()).Observe(pkt.Rtt.Seconds())
+		pingSent.WithLabelValues(pkt.IPAddr.String()).Set(float64(pinger.PacketsSent))
+		pingReceived.WithLabelValues(pkt.IPAddr.String()).Set(float64(pinger.PacketsRecv))
 		//
+		time.Sleep(1 * time.Millisecond)
 	}
 
 	pinger.Run()
 	// wait forever
-	//select {}
+	select {}
 }
 
 func init() {
@@ -67,10 +76,13 @@ func main() {
 	//signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	//fmt.Println("received", <-ch)
 
+	defer fmt.Println("ended main")
 	go endless_pings("8.8.8.8")
-	go endless_pings("1.1.1.1")
+	// go endless_pings("1.1.1.1")
 
 	// http.HandleFunc("/", root_handler)
 	http.Handle("/metrics", promhttp.Handler())
 	log.Fatal(http.ListenAndServe(":8080", nil))
+
+	select {}
 }
